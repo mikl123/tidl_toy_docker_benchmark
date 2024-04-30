@@ -5,7 +5,7 @@ import numpy as np
 from fire import Fire
 import cv2
 import pandas as pd
-
+import time
 
 def preprocess_image(image):
     image = image.copy() / 255.0
@@ -33,9 +33,9 @@ class SubGraphCompiler:
         self.onnx_path = onnx_path
         self.artifacts_folder = artifacts_folder
 
-        self.input_node = "search_image"
-        self.input_shape = (1, 3, 256, 256)
-        self.output_shape = (1, 112, 16, 16)
+        self.input_node = "img"
+        self.input_shape = (1 ,480, 640, 3)
+        self.output_shape = (1, 1, 65, 480, 640)
         self.calibration_frames = 5
         self.calibration_iterations = 5
         self.data = self.get_calibration_tensors()
@@ -68,7 +68,7 @@ class SubGraphCompiler:
         ]
 
     def get_calibration_tensors(self):
-        calibration_dataset_path = "/home/workdir/assets/calibration_120823"
+        calibration_dataset_path = "assets/calibration_120823"
         data = pd.read_csv(os.path.join(calibration_dataset_path, "data.csv"))
         data["image_path"] = (
             f"{calibration_dataset_path}/"
@@ -82,7 +82,7 @@ class SubGraphCompiler:
             if row_index == self.calibration_frames:
                 break
             image = cv2.cvtColor(cv2.imread(row["image_path"]), cv2.COLOR_BGR2RGB)
-            preprocessed_images.append(preprocess_image(image)[:, :, 256:512, 256:512])
+            preprocessed_images.append(preprocess_image(image.astype(np.float32)))
         return preprocessed_images
 
     def compile(self):
@@ -97,6 +97,7 @@ class SubGraphCompiler:
         )
         for _ in range(self.calibration_iterations):
             for inputs in self.data:
+                print(inputs.shape)
                 ort_inputs = {self.input_node: inputs}
                 _ = compilation_session.run(None, ort_inputs)
 
@@ -115,19 +116,23 @@ class SubGraphCompiler:
         )
         all_outputs = []
         for inputs in self.data[:5]:
+            start1 = time.time()
             outputs = inference_session.run(None, {self.input_node: inputs})[0]
+            print(str(time.time() - start1) + " Initial ")
+            start1 = time.time()
             outputs_tidl = inference_tidl_session.run(None, {self.input_node: inputs})[0]
+            print(str(time.time() - start1) + " Tidl")
             all_outputs.append((outputs_tidl, outputs))
         for outputs_tidl, outputs in all_outputs:
             for error_margin in [0.1, 0.01, 0.001, 0.0001]:
                 print(f"Error margin: {error_margin}")
                 compare_float_3d_arrays(
-                    arr1=outputs_tidl[0],
-                    arr2=outputs[0],
+                    arr1=outputs_tidl[0][0],
+                    arr2=outputs[0][0],
                     error_margin=error_margin,
                 )
-
 
 if __name__ == "__main__":
     Fire(SubGraphCompiler)
     print("Done")
+                                                                                                                                          
